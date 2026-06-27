@@ -231,7 +231,7 @@ export default function PaginaEstadisticas() {
                 {/* Contenedor de Filtros con Título de Sección */}
                 <div className="space-y-3">
                     <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-                        Filtros regionales
+                       Filtros geográficos
                     </h2>
                     
                     <div className="w-full bg-white/70 backdrop-blur-md p-6 rounded-[2rem] border border-white/40 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-4">
