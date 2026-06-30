@@ -22,6 +22,7 @@ interface IncidentReport {
     description?: string | null;
     contactInfo?: string | null;
     createdAt?: string | null;
+    dayOfWeek?: string | null; // 🌟 Conectado con la propiedad del backend
 }
 
 const cleanEncoding = (text: string | null | undefined): string => {
@@ -46,9 +47,15 @@ export default function ListadoCompletoEstadisticas() {
     const [loading, setLoading] = useState<boolean>(true)
     const [searchTerm, setSearchTerm] = useState<string>('')
 
+    // Filtros de Ubicación
     const [selectedDept, setSelectedDept] = useState<string>('TODOS')
     const [selectedProv, setSelectedProv] = useState<string>('TODOS')
     const [selectedDist, setSelectedDist] = useState<string>('TODOS')
+
+    // 🌟 NUEVOS ESTADOS PARA FILTROS AVANZADOS (Fechas y Tipo)
+    const [startDate, setStartDate] = useState<string>('')
+    const [endDate, setEndDate] = useState<string>('')
+    const [selectedType, setSelectedType] = useState<string>('TODOS')
 
     const ITEMS_PER_PAGE = 15;
     const [currentPage, setCurrentPage] = useState<number>(1);
@@ -80,6 +87,7 @@ export default function ListadoCompletoEstadisticas() {
 
     const safeReports = Array.isArray(reports) ? reports : [];
 
+    // Opciones Dinámicas para los selectores de ubicación
     const departamentos = Array.from(
         new Set(safeReports.map(r => cleanEncoding(r.state)).filter(Boolean))
     ).sort() as string[];
@@ -106,6 +114,12 @@ export default function ListadoCompletoEstadisticas() {
         )
     ).sort() as string[];
 
+    // 🌟 Generar lista de tipos de incidente para el filtro dinámico
+    const incidentTypes = Array.from(
+        new Set(safeReports.map(r => r.incidentType).filter(Boolean))
+    ).sort() as string[];
+
+    // ─── LÓGICA DE FILTRADO COMPLETA (INCLUYE DESDE/HASTA Y TIPO) ───
     const filteredReports = safeReports.filter((report) => {
         const rDept = cleanEncoding(report.state);
         const rProv = cleanEncoding(report.province);
@@ -113,18 +127,38 @@ export default function ListadoCompletoEstadisticas() {
         const rObj = cleanEncoding(report.stolenObject);
         const rDesc = report.description || '';
         const rType = report.incidentType || '';
+        
+        // Convertimos la fecha del registro para compararla
+        const reportDateStr = report.exactDate || report.createdAt;
+        const reportTime = reportDateStr ? new Date(reportDateStr).getTime() : 0;
 
+        // Validaciones base de ubicación
         const matchDept = selectedDept === 'TODOS' || rDept.toLowerCase() === selectedDept.toLowerCase();
         const matchProv = selectedProv === 'TODOS' || rProv.toLowerCase() === selectedProv.toLowerCase();
         const matchDist = selectedDist === 'TODOS' || rDist.toLowerCase() === selectedDist.toLowerCase();
+        
+        // 🌟 Validación de Tipo de Incidente
+        const matchType = selectedType === 'TODOS' || rType.toLowerCase() === selectedType.toLowerCase();
 
+        // 🌟 Validación de Rango de Fechas (Desde / Hasta)
+        let matchDate = true;
+        if (startDate) {
+            const start = new Date(`${startDate}T00:00:00`).getTime();
+            if (reportTime < start) matchDate = false;
+        }
+        if (endDate) {
+            const end = new Date(`${endDate}T23:59:59`).getTime();
+            if (reportTime > end) matchDate = false;
+        }
+
+        // Búsqueda por texto global
         const matchSearch = 
             rDist.toLowerCase().includes(searchTerm.toLowerCase()) ||
             rObj.toLowerCase().includes(searchTerm.toLowerCase()) ||
             rDesc.toLowerCase().includes(searchTerm.toLowerCase()) ||
             rType.toLowerCase().includes(searchTerm.toLowerCase());
 
-        return matchDept && matchProv && matchDist && matchSearch;
+        return matchDept && matchProv && matchDist && matchType && matchDate && matchSearch;
     });
 
     const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE);
@@ -144,6 +178,7 @@ export default function ListadoCompletoEstadisticas() {
         }
     };
 
+    // ─── EXPORTACIONES CON DÍA DE LA SEMANA INTEGRADO ───
     const handleExportExcel = () => {
         if (filteredReports.length === 0) {
             alert("No hay registros en la vista actual para exportar.");
@@ -153,6 +188,7 @@ export default function ListadoCompletoEstadisticas() {
         const dataToExport = filteredReports.map((report) => ({
             ID: report.id,
             Fecha: formatDate(report.exactDate || report.createdAt),
+            'Día de la Semana': report.dayOfWeek || 'No especificado', // 🌟 NUEVO
             Departamento: cleanEncoding(report.state) || 'No especificado',
             Provincia: cleanEncoding(report.province) || 'No especificado',
             Distrito: cleanEncoding(report.district) || 'No especificado',
@@ -169,7 +205,8 @@ export default function ListadoCompletoEstadisticas() {
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Incidentes");
 
-        const maxProps = [{ wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }];
+        // Añadimos tamaño para la nueva columna del día
+        const maxProps = [{ wch: 15 }, { wch: 12 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }];
         worksheet['!cols'] = maxProps;
 
         const fecha = new Date().toISOString().split("T")[0];
@@ -190,13 +227,14 @@ export default function ListadoCompletoEstadisticas() {
 
         const tableRows = filteredReports.map(r => [
             formatDate(r.exactDate || r.createdAt),
+            r.dayOfWeek || 'NO ESPECIFICADO', // 🌟 NUEVO
             `${cleanEncoding(r.district)}, ${cleanEncoding(r.province)}`,
             r.incidentType || 'No especificado',
             cleanEncoding(r.stolenObject) || 'Otros'
         ]);
 
         autoTable(doc, {
-            head: [['Fecha', 'Ubicación', 'Modalidad', 'Objeto Sustraído']],
+            head: [['Fecha', 'Día', 'Ubicación', 'Modalidad', 'Objeto Sustraído']], // 🌟 NUEVO
             body: tableRows,
             startY: 28,
             theme: 'grid',
@@ -221,7 +259,7 @@ export default function ListadoCompletoEstadisticas() {
                         </button>
                     </div>
 
-                    <div className="">
+                    <div>
                         <h1 className="text-2xl font-black text-[#0F172A] tracking-tighter uppercase">
                             BASE DE DATOS COMPLETA
                         </h1>
@@ -233,12 +271,24 @@ export default function ListadoCompletoEstadisticas() {
 
                 {/* Filtros Avanzados */}
                 <div className="bg-white/70 backdrop-blur-md p-6 rounded-[2rem] border border-white/40 shadow-sm space-y-4">
-                    <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-                        Herramientas de filtrado rápido
-                    </h2>
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                            Herramientas de filtrado rápido
+                        </h2>
+                        {/* Botón para reiniciar filtros avanzados si se requiere */}
+                        {(startDate || endDate || selectedType !== 'TODOS') && (
+                            <button 
+                                onClick={() => { setStartDate(''); setEndDate(''); setSelectedType('TODOS'); }}
+                                className="text-[10px] font-bold text-emerald-800 hover:underline"
+                            >
+                                Limpiar filtros avanzados
+                            </button>
+                        )}
+                    </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                        <div className="flex flex-col gap-1.5 sm:col-span-1">
+                    {/* Fila 1: Filtros de texto, localización y tipo de modalidad */}
+                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                        <div className="flex flex-col gap-1.5">
                             <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Término de Búsqueda</label>
                             <input
                                 type="text"
@@ -247,7 +297,7 @@ export default function ListadoCompletoEstadisticas() {
                                     setSearchTerm(e.target.value);
                                     setCurrentPage(1);
                                 }}
-                                placeholder="🔍 Buscar objeto, distrito..."
+                                placeholder="🔍 Buscar objeto, nota..."
                                 className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
                             />
                         </div>
@@ -301,6 +351,51 @@ export default function ListadoCompletoEstadisticas() {
                                 {distritos.map(di => <option key={di} value={di}>{di}</option>)}
                             </select>
                         </div>
+
+                        {/* 🌟 FILTRO ADICIONAL: Tipo de Incidente */}
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Modalidad / Tipo</label>
+                            <select
+                                value={selectedType}
+                                onChange={(e) => {
+                                    setSelectedType(e.target.value);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 cursor-pointer"
+                            >
+                                <option value="TODOS">▼ Todos</option>
+                                {incidentTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* 🌟 FILA 2: Inputs de Rango de Fechas (Desde / Hasta) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200/40">
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Fecha de Inicio (Desde)</label>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => {
+                                    setStartDate(e.target.value);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 cursor-pointer"
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Fecha de Cierre (Hasta)</label>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => {
+                                    setEndDate(e.target.value);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 cursor-pointer"
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -313,76 +408,78 @@ export default function ListadoCompletoEstadisticas() {
                 ) : (
                     <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
                         
-                        {/* ─── 📥 CUADRO DEL CONTADOR COMPLETAMENTE ALINEADO A LOS EXTREMOS (image_98ffc5.png) ─── */}
+                        {/* Cuadro del Contador */}
                         <div className="w-full px-8 py-5 bg-slate-50 border-b border-slate-100 flex flex-row justify-between items-center gap-4">
-                            {/* Texto empujado 100% a la izquierda */}
                             <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">
                                 Mostrando <span className="text-emerald-700 font-extrabold">{currentReports.length}</span> de <span className="text-slate-900 font-extrabold">{filteredReports.length}</span> registros encontrados ({safeReports.length} totales)
                             </span>
                             
-{/* Botones empujados 100% a la derecha en la esquina */}
-<div className="flex items-center gap-2 shrink-0">
-    <button
-        onClick={handleExportExcel}
-        className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-[9px] font-black text-white rounded-lg transition-all uppercase tracking-wider shadow-sm hover:-translate-y-0.5 active:translate-y-0 duration-150 flex items-center gap-1.5"
-    >
-        📥 Excel
-    </button>
-    <button
-        onClick={handleExportPDF}
-        className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-[9px] font-black text-white rounded-lg transition-all uppercase tracking-wider shadow-sm hover:-translate-y-0.5 active:translate-y-0 duration-150 flex items-center gap-1.5"
-    >
-        📄 PDF
-    </button>
-</div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={handleExportExcel}
+                                    className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-[9px] font-black text-white rounded-lg transition-all uppercase tracking-wider shadow-sm hover:-translate-y-0.5 active:translate-y-0 duration-150 flex items-center gap-1.5"
+                                >
+                                    📥 Excel
+                                </button>
+                                <button
+                                    onClick={handleExportPDF}
+                                    className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-[9px] font-black text-white rounded-lg transition-all uppercase tracking-wider shadow-sm hover:-translate-y-0.5 active:translate-y-0 duration-150 flex items-center gap-1.5"
+                                >
+                                    📄 PDF
+                                </button>
+                            </div>
                         </div>
 
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="border-b border-slate-100 bg-slate-50/50">
-                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha</th>
-                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Ubicación</th>
-                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Modalidad / Tipo</th>
-                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Objeto Sustraído</th>
-                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Descripción Breve</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                                    {currentReports.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={5} className="px-6 py-16 text-center text-slate-400 uppercase font-black tracking-widest text-[10px]">
-                                                No hay registros que coincidan con la búsqueda activa.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        currentReports.map((report) => (
-                                            <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
-                                                <td className="px-6 py-4 whitespace-nowrap text-slate-500 font-bold">
-                                                    {formatDate(report.exactDate || report.createdAt)}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="flex flex-col">
-                                                        <span className="font-bold text-slate-900">{cleanEncoding(report.district) || '---'}</span>
-                                                        <span className="text-[10px] text-slate-400 font-semibold">{cleanEncoding(report.province)}, {cleanEncoding(report.state)}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-tight rounded-md">
-                                                        {report.incidentType || 'No especificado'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 font-semibold text-slate-800">
-                                                    {cleanEncoding(report.stolenObject) || 'Otros'}
-                                                </td>
-                                                <td className="px-6 py-4 max-w-xs truncate text-slate-500 font-normal">
-                                                    {report.description || 'Sin descripción adicional.'}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
+                           <table className="w-full text-left border-collapse">
+    <thead>
+        <tr className="border-b border-slate-100 bg-slate-50/50">
+            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Día</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Ubicación</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Modalidad / Tipo</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Objeto Sustraído</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Descripción Breve</th>
+        </tr>
+    </thead>
+    <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+        {currentReports.length === 0 ? (
+            <tr>
+                <td colSpan={6} className="px-6 py-16 text-center text-slate-400 uppercase font-black tracking-widest text-[10px]">
+                    No hay registros que coincidan con la búsqueda activa.
+                </td>
+            </tr>
+        ) : (
+            currentReports.map((report) => (
+                <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-slate-500 font-bold">
+                        {formatDate(report.exactDate || report.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-[10px] text-emerald-800 font-black tracking-tight">
+                        {report.dayOfWeek || '---'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex flex-col">
+                            <span className="font-bold text-slate-900">{cleanEncoding(report.district) || '---'}</span>
+                            <span className="text-[10px] text-slate-400 font-semibold">{cleanEncoding(report.province)}, {cleanEncoding(report.state)}</span>
+                        </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-tight rounded-md">
+                            {report.incidentType || 'No especificado'}
+                        </span>
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-slate-800">
+                        {cleanEncoding(report.stolenObject) || 'Otros'}
+                    </td>
+                    <td className="px-6 py-4 max-w-xs truncate text-slate-500 font-normal">
+                        {report.description || 'Sin descripción adicional.'}
+                    </td>
+                </tr>
+            ))
+        )}
+    </tbody>
+</table>
                         </div>
 
                         {/* Control de páginas */}
