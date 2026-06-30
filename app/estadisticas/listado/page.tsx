@@ -250,9 +250,9 @@ export default function ListadoCompletoEstadisticas() {
 
         const maxProps = [{ wch: 15 }, { wch: 12 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }];
         worksheet['!cols'] = maxProps;
-
+ {/* Nombre documento del Excel*/}
         const fecha = new Date().toISOString().split("T")[0];
-        XLSX.writeFile(workbook, `reportes_seguridad_${fecha}.xlsx`);
+        XLSX.writeFile(workbook, `reportes_de_inseguridad_ciudadana´${fecha}.xlsx`);
     };
 
     const handleExportPDF = () => {
@@ -263,7 +263,7 @@ export default function ListadoCompletoEstadisticas() {
         const doc = new jsPDF();
         const fecha = new Date().toISOString().split("T")[0];
         
-        doc.text("Reporte de Incidentes de Seguridad", 14, 15);
+        doc.text("Reporte de Incidentes de Inseguridad", 14, 15);
         doc.setFontSize(10);
         doc.text(`Generado el: ${fecha} | Registros: ${filteredReports.length}`, 14, 22);
 
@@ -283,7 +283,7 @@ export default function ListadoCompletoEstadisticas() {
             headStyles: { fillColor: [15, 23, 42] }
         });
 
-        doc.save(`reportes_seguridad_${fecha}.pdf`);
+        doc.save(`reportes_de_inseguridad_ciudadana´${fecha}.pdf`);
     };
 
     return (
