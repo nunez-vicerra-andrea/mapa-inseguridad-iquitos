@@ -282,7 +282,7 @@ export default function ListadoCompletoEstadisticas() {
             theme: 'grid',
             headStyles: { fillColor: [15, 23, 42] }
         });
-
+ {/* Nombre deL PDF */}
         doc.save(`reportes_de_inseguridad_ciudadana´${fecha}.pdf`);
     };
 
