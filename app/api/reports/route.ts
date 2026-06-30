@@ -171,22 +171,23 @@ export async function GET() {
     const sanitizedReports = reports.map(report => {
       let nombreDia = "NO ESPECIFICADO";
 
-      // Calculamos dinámicamente el día de la semana basado en las columnas numéricas de la BD
+      // 🌟 CORRECCIÓN: Usamos Date.UTC fijando el mediodía (12:00:00) para neutralizar desfases de zona horaria
       if (report.incidentYear && report.incidentMonth && report.incidentDay) {
-        const fechaObj = new Date(
+        const fechaObj = new Date(Date.UTC(
           Number(report.incidentYear),
-          Number(report.incidentMonth) - 1, // Restamos 1 porque en JavaScript los meses van de 0 a 11
-          Number(report.incidentDay)
-        );
+          Number(report.incidentMonth) - 1, // Restamos 1 porque los meses van de 0 a 11
+          Number(report.incidentDay),
+          12, 0, 0 // Forzamos hora neutra internacional
+        ));
 
         if (!isNaN(fechaObj.getTime())) {
-          nombreDia = diasSemana[fechaObj.getDay()];
+          // 🌟 CORRECCIÓN: Extraemos el día usando getUTCDay() para que coincida exactamente con la fecha UTC creada
+          nombreDia = diasSemana[fechaObj.getUTCDay()];
         }
       }
 
       return {
         ...report,
-        // Saneamiento riguroso al vuelo para reparar registros viejos corruptos en la respuesta de la API
         district: fixEncoding(report.district) || 'Iquitos',
         province: fixEncoding(report.province) || 'Maynas',
         state: fixEncoding(report.state) || 'Loreto',
@@ -199,7 +200,7 @@ export async function GET() {
         description: fixEncoding(report.description),
         contactInfo: fixEncoding(report.contactInfo),
         
-        // 🌟 Nueva propiedad lista para ser mapeada en las columnas de descarga
+        // Enviamos la propiedad procesada correctamente al frontend
         dayOfWeek: nombreDia 
       };
     });

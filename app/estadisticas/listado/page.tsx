@@ -22,7 +22,12 @@ interface IncidentReport {
     description?: string | null;
     contactInfo?: string | null;
     createdAt?: string | null;
-    dayOfWeek?: string | null; // 🌟 Conectado con la propiedad del backend
+    dayOfWeek?: string | null; 
+    
+    // Propiedades nativas del modelo de la base de datos
+    incidentYear?: number | null;
+    incidentMonth?: number | null;
+    incidentDay?: number | null;
 }
 
 const cleanEncoding = (text: string | null | undefined): string => {
@@ -52,7 +57,7 @@ export default function ListadoCompletoEstadisticas() {
     const [selectedProv, setSelectedProv] = useState<string>('TODOS')
     const [selectedDist, setSelectedDist] = useState<string>('TODOS')
 
-    // 🌟 NUEVOS ESTADOS PARA FILTROS AVANZADOS (Fechas y Tipo)
+    // Filtros Avanzados (Fechas y Tipo)
     const [startDate, setStartDate] = useState<string>('')
     const [endDate, setEndDate] = useState<string>('')
     const [selectedType, setSelectedType] = useState<string>('TODOS')
@@ -63,15 +68,15 @@ export default function ListadoCompletoEstadisticas() {
     useEffect(() => {
         const fetchReports = async () => {
             try {
-                const res = await fetch('/api/reports')
+                // Forzamos la petición sin caché para traer los datos limpios del backend
+                const res = await fetch('/api/reports', { cache: 'no-store', headers: { 'Pragma': 'no-cache' } })
                 const data = await res.json()
                 
                 setReports(
                     Array.isArray(data)
                         ? data.sort(
                             (a, b) =>
-                                new Date(b.createdAt || b.exactDate || '').getTime() -
-                                new Date(a.createdAt || a.exactDate || '').getTime()
+                                new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime()
                           )
                         : []
                 );
@@ -114,12 +119,46 @@ export default function ListadoCompletoEstadisticas() {
         )
     ).sort() as string[];
 
-    // 🌟 Generar lista de tipos de incidente para el filtro dinámico
+    // Generar lista de tipos de incidente para el filtro dinámico
     const incidentTypes = Array.from(
         new Set(safeReports.map(r => r.incidentType).filter(Boolean))
     ).sort() as string[];
 
-    // ─── LÓGICA DE FILTRADO COMPLETA (INCLUYE DESDE/HASTA Y TIPO) ───
+    // ─── FUNCIÓN AUXILIAR REPARADA: DETECTA EL DÍA MATEMÁTICAMENTE MEDIANTE CUALQUIER CAMPO DISPONIBLE ───
+    const getCalculatedDay = (report: IncidentReport): string => {
+        const diasSemana = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
+
+        // 1. Intentar con las propiedades numéricas separadas (UTC para evitar desfasajes)
+        if (report.incidentYear && report.incidentMonth && report.incidentDay) {
+            const date = new Date(Date.UTC(
+                Number(report.incidentYear),
+                Number(report.incidentMonth) - 1,
+                Number(report.incidentDay),
+                12, 0, 0
+            ));
+            if (!isNaN(date.getTime())) {
+                return diasSemana[date.getUTCDay()];
+            }
+        }
+
+        // 2. Respaldo crítico si los enteros son null: Leer la propiedad nativa 'createdAt' o exactDate
+        const fallbackDateStr = report.createdAt || report.exactDate;
+        if (fallbackDateStr) {
+            const date = new Date(fallbackDateStr);
+            if (!isNaN(date.getTime())) {
+                return diasSemana[date.getDay()];
+            }
+        }
+
+        // 3. Última instancia por si no hay fechas válidas
+        if (report.dayOfWeek && report.dayOfWeek !== 'NO ESPECIFICADO') {
+            return report.dayOfWeek.toUpperCase();
+        }
+
+        return 'NO ESPECIFICADO';
+    };
+
+    // ─── LÓGICA DE FILTRADO COMPLETA ───
     const filteredReports = safeReports.filter((report) => {
         const rDept = cleanEncoding(report.state);
         const rProv = cleanEncoding(report.province);
@@ -128,19 +167,19 @@ export default function ListadoCompletoEstadisticas() {
         const rDesc = report.description || '';
         const rType = report.incidentType || '';
         
-        // Convertimos la fecha del registro para compararla
-        const reportDateStr = report.exactDate || report.createdAt;
-        const reportTime = reportDateStr ? new Date(reportDateStr).getTime() : 0;
+        // Corrección del tiempo de reporte
+        let reportTime = 0;
+        if (report.incidentYear && report.incidentMonth && report.incidentDay) {
+            reportTime = new Date(report.incidentYear, report.incidentMonth - 1, report.incidentDay, 12, 0, 0).getTime();
+        } else if (report.createdAt) {
+            reportTime = new Date(report.createdAt).getTime();
+        }
 
-        // Validaciones base de ubicación
         const matchDept = selectedDept === 'TODOS' || rDept.toLowerCase() === selectedDept.toLowerCase();
         const matchProv = selectedProv === 'TODOS' || rProv.toLowerCase() === selectedProv.toLowerCase();
         const matchDist = selectedDist === 'TODOS' || rDist.toLowerCase() === selectedDist.toLowerCase();
-        
-        // 🌟 Validación de Tipo de Incidente
         const matchType = selectedType === 'TODOS' || rType.toLowerCase() === selectedType.toLowerCase();
 
-        // 🌟 Validación de Rango de Fechas (Desde / Hasta)
         let matchDate = true;
         if (startDate) {
             const start = new Date(`${startDate}T00:00:00`).getTime();
@@ -151,7 +190,6 @@ export default function ListadoCompletoEstadisticas() {
             if (reportTime > end) matchDate = false;
         }
 
-        // Búsqueda por texto global
         const matchSearch = 
             rDist.toLowerCase().includes(searchTerm.toLowerCase()) ||
             rObj.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -168,17 +206,22 @@ export default function ListadoCompletoEstadisticas() {
         currentPage * ITEMS_PER_PAGE
     );
 
-    const formatDate = (dateStr: string | null | undefined) => {
-        if (!dateStr) return '---';
+    const formatDate = (report: IncidentReport) => {
+        if (report.incidentDay && report.incidentMonth && report.incidentYear) {
+            const d = String(report.incidentDay).padStart(2, '0');
+            const m = String(report.incidentMonth).padStart(2, '0');
+            return `${d}/${m}/${report.incidentYear}`;
+        }
+        if (!report.createdAt) return '---';
         try {
-            const date = new Date(dateStr);
+            const date = new Date(report.createdAt);
             return date.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
         } catch {
-            return dateStr;
+            return report.createdAt;
         }
     };
 
-    // ─── EXPORTACIONES CON DÍA DE LA SEMANA INTEGRADO ───
+    // ─── EXPORTACIONES ───
     const handleExportExcel = () => {
         if (filteredReports.length === 0) {
             alert("No hay registros en la vista actual para exportar.");
@@ -187,8 +230,8 @@ export default function ListadoCompletoEstadisticas() {
 
         const dataToExport = filteredReports.map((report) => ({
             ID: report.id,
-            Fecha: formatDate(report.exactDate || report.createdAt),
-            'Día de la Semana': report.dayOfWeek || 'No especificado', // 🌟 NUEVO
+            Fecha: formatDate(report),
+            'Día de la Semana': getCalculatedDay(report),
             Departamento: cleanEncoding(report.state) || 'No especificado',
             Provincia: cleanEncoding(report.province) || 'No especificado',
             Distrito: cleanEncoding(report.district) || 'No especificado',
@@ -205,7 +248,6 @@ export default function ListadoCompletoEstadisticas() {
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Incidentes");
 
-        // Añadimos tamaño para la nueva columna del día
         const maxProps = [{ wch: 15 }, { wch: 12 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }];
         worksheet['!cols'] = maxProps;
 
@@ -226,15 +268,15 @@ export default function ListadoCompletoEstadisticas() {
         doc.text(`Generado el: ${fecha} | Registros: ${filteredReports.length}`, 14, 22);
 
         const tableRows = filteredReports.map(r => [
-            formatDate(r.exactDate || r.createdAt),
-            r.dayOfWeek || 'NO ESPECIFICADO', // 🌟 NUEVO
+            formatDate(r),
+            getCalculatedDay(r),
             `${cleanEncoding(r.district)}, ${cleanEncoding(r.province)}`,
             r.incidentType || 'No especificado',
             cleanEncoding(r.stolenObject) || 'Otros'
         ]);
 
         autoTable(doc, {
-            head: [['Fecha', 'Día', 'Ubicación', 'Modalidad', 'Objeto Sustraído']], // 🌟 NUEVO
+            head: [['Fecha', 'Día', 'Ubicación', 'Modalidad', 'Objeto Sustraído']],
             body: tableRows,
             startY: 28,
             theme: 'grid',
@@ -248,7 +290,6 @@ export default function ListadoCompletoEstadisticas() {
         <div className="min-h-screen bg-[#d1e2d9] bg-[radial-gradient(circle_at_top_right,_#e8f5ee_0%,_#d1e2d9_50%,_#b8cdc2_100%)] p-6 md:p-12 font-sans text-slate-800">
             <div className="max-w-7xl mx-auto space-y-6">
                 
-                {/* Cabecera limpia */}
                 <div className="space-y-4">
                     <div>
                         <button
@@ -275,7 +316,6 @@ export default function ListadoCompletoEstadisticas() {
                         <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
                             Herramientas de filtrado rápido
                         </h2>
-                        {/* Botón para reiniciar filtros avanzados si se requiere */}
                         {(startDate || endDate || selectedType !== 'TODOS') && (
                             <button 
                                 onClick={() => { setStartDate(''); setEndDate(''); setSelectedType('TODOS'); }}
@@ -286,7 +326,6 @@ export default function ListadoCompletoEstadisticas() {
                         )}
                     </div>
                     
-                    {/* Fila 1: Filtros de texto, localización y tipo de modalidad */}
                     <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                         <div className="flex flex-col gap-1.5">
                             <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Término de Búsqueda</label>
@@ -352,7 +391,6 @@ export default function ListadoCompletoEstadisticas() {
                             </select>
                         </div>
 
-                        {/* 🌟 FILTRO ADICIONAL: Tipo de Incidente */}
                         <div className="flex flex-col gap-1.5">
                             <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Modalidad / Tipo</label>
                             <select
@@ -369,8 +407,7 @@ export default function ListadoCompletoEstadisticas() {
                         </div>
                     </div>
 
-                    {/* 🌟 FILA 2: Inputs de Rango de Fechas (Desde / Hasta) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200/40">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                         <div className="flex flex-col gap-1.5">
                             <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Fecha de Inicio (Desde)</label>
                             <input
@@ -408,7 +445,6 @@ export default function ListadoCompletoEstadisticas() {
                 ) : (
                     <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
                         
-                        {/* Cuadro del Contador */}
                         <div className="w-full px-8 py-5 bg-slate-50 border-b border-slate-100 flex flex-row justify-between items-center gap-4">
                             <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">
                                 Mostrando <span className="text-emerald-700 font-extrabold">{currentReports.length}</span> de <span className="text-slate-900 font-extrabold">{filteredReports.length}</span> registros encontrados ({safeReports.length} totales)
@@ -431,58 +467,57 @@ export default function ListadoCompletoEstadisticas() {
                         </div>
 
                         <div className="overflow-x-auto">
-                           <table className="w-full text-left border-collapse">
-    <thead>
-        <tr className="border-b border-slate-100 bg-slate-50/50">
-            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha</th>
-            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Día</th>
-            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Ubicación</th>
-            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Modalidad / Tipo</th>
-            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Objeto Sustraído</th>
-            <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Descripción Breve</th>
-        </tr>
-    </thead>
-    <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-        {currentReports.length === 0 ? (
-            <tr>
-                <td colSpan={6} className="px-6 py-16 text-center text-slate-400 uppercase font-black tracking-widest text-[10px]">
-                    No hay registros que coincidan con la búsqueda activa.
-                </td>
-            </tr>
-        ) : (
-            currentReports.map((report) => (
-                <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-slate-500 font-bold">
-                        {formatDate(report.exactDate || report.createdAt)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-[10px] text-emerald-800 font-black tracking-tight">
-                        {report.dayOfWeek || '---'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col">
-                            <span className="font-bold text-slate-900">{cleanEncoding(report.district) || '---'}</span>
-                            <span className="text-[10px] text-slate-400 font-semibold">{cleanEncoding(report.province)}, {cleanEncoding(report.state)}</span>
-                        </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-tight rounded-md">
-                            {report.incidentType || 'No especificado'}
-                        </span>
-                    </td>
-                    <td className="px-6 py-4 font-semibold text-slate-800">
-                        {cleanEncoding(report.stolenObject) || 'Otros'}
-                    </td>
-                    <td className="px-6 py-4 max-w-xs truncate text-slate-500 font-normal">
-                        {report.description || 'Sin descripción adicional.'}
-                    </td>
-                </tr>
-            ))
-        )}
-    </tbody>
-</table>
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Día</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Ubicación</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Modalidad / Tipo</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Objeto Sustraído</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-wider">Descripción Breve</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+                                    {currentReports.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-6 py-16 text-center text-slate-400 uppercase font-black tracking-widest text-[10px]">
+                                                No hay registros que coincidan con la búsqueda activa.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        currentReports.map((report) => (
+                                            <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
+                                                <td className="px-6 py-4 whitespace-nowrap text-slate-500 font-bold">
+                                                    {formatDate(report)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-[10px] text-emerald-800 font-black tracking-tight uppercase">
+                                                    {getCalculatedDay(report)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-bold text-slate-900">{cleanEncoding(report.district) || '---'}</span>
+                                                        <span className="text-[10px] text-slate-400 font-semibold">{cleanEncoding(report.province)}, {cleanEncoding(report.state)}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-tight rounded-md">
+                                                        {report.incidentType || 'No especificado'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 font-semibold text-slate-800">
+                                                    {cleanEncoding(report.stolenObject) || 'Otros'}
+                                                </td>
+                                                <td className="px-6 py-4 max-w-xs truncate text-slate-500 font-normal">
+                                                    {report.description || 'Sin descripción adicional.'}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
 
-                        {/* Control de páginas */}
                         {totalPages > 1 && (
                             <div className="px-8 py-5 border-t border-slate-100 bg-slate-50/40 flex flex-row items-center justify-between gap-4">
                                 <button
